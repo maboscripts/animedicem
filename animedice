@@ -1,0 +1,248 @@
+-- Anime Dice Full Auto Farm Script
+-- Auto Roll + Auto Collect + Auto Equip Best + GUI Toggle
+-- Executor: Synapse X, KRNL, Fluxus, Delta
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- =====================
+-- CONFIG
+-- =====================
+local CONFIG = {
+    AutoRoll = true,
+    AutoCollect = true,
+    AutoEquipBest = true,
+    RollDelay = 0.2,
+    CollectDelay = 1,
+}
+
+-- =====================
+-- UTILITIES
+-- =====================
+local function findRemote(names)
+    for _, name in ipairs(names) do
+        local r = ReplicatedStorage:FindFirstChild(name, true)
+        if r then return r end
+        for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
+            if v.Name:lower() == name:lower() then return v end
+        end
+    end
+    return nil
+end
+
+local function safeCall(remote, ...)
+    if not remote then return end
+    pcall(function()
+        if remote:IsA("RemoteFunction") then
+            remote:InvokeServer(...)
+        else
+            remote:FireServer(...)
+        end
+    end)
+end
+
+local function findButton(keywords)
+    for _, obj in ipairs(PlayerGui:GetDescendants()) do
+        if (obj:IsA("TextButton") or obj:IsA("ImageButton")) and obj.Visible then
+            local name = obj.Name:lower()
+            local text = (obj:IsA("TextButton") and obj.Text:lower()) or ""
+            for _, kw in ipairs(keywords) do
+                if name:find(kw) or text:find(kw) then
+                    return obj
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- =====================
+-- REMOTE DETECTION
+-- =====================
+local Remotes = {}
+
+local function loadRemotes()
+    Remotes.Roll    = findRemote({"Roll","RollDice","Spin","Gacha","Draw","RollButton"})
+    Remotes.Collect = findRemote({"Collect","ClaimReward","ClaimOffline","GetReward","ClaimIncome","Claim"})
+    Remotes.Equip   = findRemote({"Equip","EquipChar","SetTeam","EquipUnit","EquipCharacter"})
+end
+
+-- =====================
+-- GUI
+-- =====================
+-- Remove old GUI if reinjecting
+local oldGui = PlayerGui:FindFirstChild("AnimeDiceAll")
+if oldGui then oldGui:Destroy() end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AnimeDiceAll"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = PlayerGui
+
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.new(0, 220, 0, 230)
+Frame.Position = UDim2.new(0, 10, 0.5, -115)
+Frame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+Frame.BorderSizePixel = 0
+Frame.Active = true
+Frame.Draggable = true
+Frame.Parent = ScreenGui
+Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 10)
+
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 38)
+Header.BackgroundColor3 = Color3.fromRGB(100, 40, 200)
+Header.BorderSizePixel = 0
+Header.Parent = Frame
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 1, 0)
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.GothamBold
+Title.Text = "🎲 Anime Dice Farm"
+Title.TextColor3 = Color3.new(1,1,1)
+Title.TextSize = 14
+Title.Parent = Header
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Size = UDim2.new(1, -10, 0, 22)
+StatusLabel.Position = UDim2.new(0, 5, 0, 44)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.TextSize = 11
+StatusLabel.TextColor3 = Color3.fromRGB(160, 255, 160)
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.Text = "Status: Loading..."
+StatusLabel.Parent = Frame
+
+local RollLabel = Instance.new("TextLabel")
+RollLabel.Size = UDim2.new(1, -10, 0, 20)
+RollLabel.Position = UDim2.new(0, 5, 0, 66)
+RollLabel.BackgroundTransparency = 1
+RollLabel.Font = Enum.Font.Gotham
+RollLabel.TextSize = 11
+RollLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
+RollLabel.TextXAlignment = Enum.TextXAlignment.Left
+RollLabel.Text = "Rolls: 0"
+RollLabel.Parent = Frame
+
+local function makeToggle(label, yPos, key)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -14, 0, 30)
+    btn.Position = UDim2.new(0, 7, 0, yPos)
+    btn.BorderSizePixel = 0
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 12
+    btn.Parent = Frame
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+    local function refresh()
+        if CONFIG[key] then
+            btn.BackgroundColor3 = Color3.fromRGB(50, 170, 80)
+            btn.TextColor3 = Color3.new(1,1,1)
+            btn.Text = "✅ " .. label .. ": ON"
+        else
+            btn.BackgroundColor3 = Color3.fromRGB(170, 50, 50)
+            btn.TextColor3 = Color3.new(1,1,1)
+            btn.Text = "❌ " .. label .. ": OFF"
+        end
+    end
+
+    refresh()
+    btn.MouseButton1Click:Connect(function()
+        CONFIG[key] = not CONFIG[key]
+        refresh()
+    end)
+end
+
+makeToggle("Auto Roll",    92,  "AutoRoll")
+makeToggle("Auto Collect", 128, "AutoCollect")
+makeToggle("Auto Equip",   164, "AutoEquipBest")
+
+-- =====================
+-- COUNTERS
+-- =====================
+local rolls = 0
+
+local function setStatus(msg)
+    StatusLabel.Text = "Status: " .. msg
+end
+
+-- =====================
+-- AUTO ROLL LOOP
+-- =====================
+task.spawn(function()
+    loadRemotes()
+    task.wait(2)
+
+    while true do
+        task.wait(CONFIG.RollDelay)
+        if CONFIG.AutoRoll then
+            if Remotes.Roll then
+                safeCall(Remotes.Roll)
+                rolls += 1
+                RollLabel.Text = "Rolls: " .. rolls
+                setStatus("Rolling via remote ✓")
+            else
+                -- Fallback: click in-game button
+                local btn = findButton({"roll","spin","gacha","draw","dice"})
+                if btn then
+                    btn:SimulateClick()
+                    rolls += 1
+                    RollLabel.Text = "Rolls: " .. rolls
+                    setStatus("Rolling via button ✓")
+                else
+                    setStatus("⚠ Roll button not found")
+                    loadRemotes()
+                    task.wait(1)
+                end
+            end
+        end
+    end
+end)
+
+-- =====================
+-- AUTO COLLECT LOOP
+-- =====================
+task.spawn(function()
+    task.wait(4)
+    while true do
+        task.wait(CONFIG.CollectDelay)
+        if CONFIG.AutoCollect then
+            if Remotes.Collect then
+                safeCall(Remotes.Collect)
+                setStatus("Collecting income ✓")
+            end
+            local claimBtn = findButton({"claim","collect","income","reward"})
+            if claimBtn then
+                pcall(function() claimBtn:SimulateClick() end)
+            end
+        end
+    end
+end)
+
+-- =====================
+-- AUTO EQUIP LOOP
+-- =====================
+task.spawn(function()
+    task.wait(6)
+    while true do
+        task.wait(8)
+        if CONFIG.AutoEquipBest and Remotes.Equip then
+            safeCall(Remotes.Equip)
+            setStatus("Equipping best units ✓")
+        end
+    end
+end)
+
+-- =====================
+-- DONE
+-- =====================
+setStatus("Running ✓")
+print("[AnimeDice] Script loaded. Remotes -> Roll:", Remotes.Roll, "| Collect:", Remotes.Collect)
